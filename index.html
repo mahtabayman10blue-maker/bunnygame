@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=no">
     <title>Cute Bunny Co-Op Online</title>
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="/
+        socket.io/socket.io.js
+"></script>
     <style>
         body { margin: 0; background-color: #f7d6e0; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; height: 100vh; font-family: sans-serif; overflow: hidden; touch-action: none; position: relative; }
         #game-container { text-align: center; width: 100%; max-width: 360px; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; }
@@ -67,18 +69,18 @@
 </div>
 
 <script>
-let socket = null; // Default to null until button tap initiates handshake
+let socket = null;
 
 const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
 const scoreText = document.getElementById("score-text"), livesText = document.getElementById("lives-text");
 const nameOverlay = document.getElementById("name-overlay"), nameInput = document.getElementById("name-input"), startBtn = document.getElementById("start-btn");
 
-let gameRunning = false, score = 0, highScore = 0, lives = 3, gameOver = false, hearts = [], heartSpawnTimer = 0, petals = [], serverPlayersCount = 0;
+let gameRunning = false, score = 0, highScore = 0, lives = 3, gameOver = false, hearts = [], petals = [], serverPlayersCount = 0;
 const activeInputs = { blueUp: false, blueDown: false, blueLeft: false, blueRight: false, pinkUp: false, pinkDown: false, pinkLeft: false, pinkRight: false };
 
 let myId = null, myRole = null;
-let blueBunny = { x: 50, y: 160, width: 30, height: 30, speed: 3, color: "#85e3ff", frame: 0, ticks: 0, name: "Bluey" };
-let pinkBunny = { x: 240, y: 160, width: 30, height: 30, speed: 3, color: "#ff8fab", frame: 0, ticks: 0, name: "Pinky" };
+let blueBunny = { x: 50, y: 160, width: 30, height: 30, speed: 4, frame: 0, ticks: 0, name: "Bluey", color: "#85e3ff" };
+let pinkBunny = { x: 240, y: 160, width: 30, height: 30, speed: 4, frame: 0, ticks: 0, name: "Pinky", color: "#ff8fab" };
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playTone(freq, type, duration) {
@@ -95,7 +97,6 @@ for (let i = 0; i < 10; i++) {
     petals.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: 2 + Math.random() * 3, d: 0.5 + Math.random() });
 }
 
-// Set up server listening network functions once triggered
 function startNetworkSync() {
     try {
         socket = io(window.location.origin, { transports: ['websocket', 'polling'], upgrade: true });
@@ -123,25 +124,23 @@ function startNetworkSync() {
         });
 
         socket.on('playerMoved', (p) => {
-            if (p.role === 'blue') { blueBunny.x = p.x; blueBunny.y = p.y; blueBunny.name = p.name; }
-            if (p.role === 'pink') { pinkBunny.x = p.x; pinkBunny.y = p.y; pinkBunny.name = p.name; }
+            if (p.role === 'blue' && myRole !== 'blue') { blueBunny.x = p.x; blueBunny.y = p.y; blueBunny.name = p.name; }
+            if (p.role === 'pink' && myRole !== 'pink') { pinkBunny.x = p.x; pinkBunny.y = p.y; pinkBunny.name = p.name; }
+            if (p.role === 'blue' && myRole === 'blue') blueBunny.name = p.name;
+            if (p.role === 'pink' && myRole === 'pink') pinkBunny.name = p.name;
         });
 
         socket.on('heartEffect', (type) => {
             if (type === 'catch') playTone(523.25, 'sine', 0.1);
             if (type === 'miss') playTone(196, 'sawtooth', 0.2);
         });
-    } catch(e) {
-        console.log("Offline or connection failed");
-    }
+    } catch(e) { console.log("Connection failed"); }
 }
 
 function triggerStart() {
-    nameOverlay.style.display = "none"; 
-    gameRunning = true;
-    startNetworkSync(); // 🌟 Wakes up network receptors ONLY after button press!
+    nameOverlay.style.display = "none"; gameRunning = true;
+    startNetworkSync();
 }
-
 startBtn.addEventListener("touchstart", (e) => { e.preventDefault(); triggerStart(); }, { passive: false });
 startBtn.addEventListener("click", () => triggerStart());
 
@@ -161,7 +160,7 @@ function updateLivesUI() {
 
 function update() {
     if (gameRunning && !gameOver && serverPlayersCount === 2) {
-                let moved = false;
+        let moved = false;
         if (myRole === 'blue') {
             if (activeInputs.blueLeft) { blueBunny.x -= blueBunny.speed; moved = true; }
             if (activeInputs.blueRight) { blueBunny.x += blueBunny.speed; moved = true; }
@@ -174,32 +173,33 @@ function update() {
             if (activeInputs.pinkLeft) { pinkBunny.x -= pinkBunny.speed; moved = true; }
             if (activeInputs.pinkRight) { pinkBunny.x += pinkBunny.speed; moved = true; }
             if (activeInputs.pinkUp) { pinkBunny.y -= pinkBunny.speed; moved = true; }
-            if (activeInputs.pinkDown) { pinkBunny.y += pinkBunny.speed; moved = true; }
-            pinkBunny.x = Math.max(0, Math.min(canvas.width - pinkBunny.width, pinkBunny.x));
-            pinkBunny.y = Math.max(25, Math.min(canvas.height - pinkBunny.height, pinkBunny.y));
-        }
-        if (moved) {
-            socket.emit('playerMove', { x: myRole === 'blue' ? blueBunny.x : pinkBunny.x, y: myRole === 'blue' ? blueBunny.y : pinkBunny.y });
-        }
+        if (activeInputs.pinkDown) { pinkBunny.y += pinkBunny.speed; moved = true; }
+        pinkBunny.x = Math.max(0, Math.min(canvas.width - pinkBunny.width, pinkBunny.x));
+        pinkBunny.y = Math.max(25, Math.min(canvas.height - pinkBunny.height, pinkBunny.y));
+    }
+    
+    if (moved && socket) {
+        socket.emit('playerMove', { x: myRole === 'blue' ? blueBunny.x : pinkBunny.x, y: myRole === 'blue' ? blueBunny.y : pinkBunny.y });
+    }
 
-        blueBunny.ticks++; if (blueBunny.ticks > 8) { blueBunny.frame = (blueBunny.frame + 1) % 4; blueBunny.ticks = 0; }
-        pinkBunny.ticks++; if (pinkBunny.ticks > 8) { pinkBunny.frame = (pinkBunny.frame + 1) % 4; pinkBunny.ticks = 0; }
-    }
-    
-    if (gameRunning) {
-        for (let p of petals) { p.y += p.d; p.x += Math.sin(p.y/10)*0.2; if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } }
-    }
-    
-    draw(); requestAnimationFrame(update);
+    blueBunny.ticks++; if (blueBunny.ticks > 8) { blueBunny.frame = (blueBunny.frame + 1) % 4; blueBunny.ticks = 0; }
+    pinkBunny.ticks++; if (pinkBunny.ticks > 8) { pinkBunny.frame = (pinkBunny.frame + 1) % 4; pinkBunny.ticks = 0; }
+}
+
+if (gameRunning) {
+    for (let p of petals) { p.y += p.d; p.x += Math.sin(p.y/10)*0.2; if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } }
+}
+
+draw(); requestAnimationFrame(update);
 }
 
 function drawHeart(x, y, w, h) {
     ctx.fillStyle = "#ff4d6d";
-    ctx.fillRect(x + (w * 0.25), y, w * 0.25, h * 0.25); 
-    ctx.fillRect(x + (w * 0.5), y, w * 0.25, h * 0.25); 
+    ctx.fillRect(x + (w * 0.25), y, w * 0.25, h * 0.25);
+    ctx.fillRect(x + (w * 0.5), y, w * 0.25, h * 0.25);
     ctx.fillRect(x, y + (h * 0.25), w, h * 0.35);
-    ctx.fillRect(x + (w * 0.125), y + (h * 0.6), w * 0.75, h * 0.15); 
-    ctx.fillRect(x + (w * 0.25), y + (h * 0.75), w * 0.5, h * 0.15); 
+    ctx.fillRect(x + (w * 0.125), y + (h * 0.6), w * 0.75, h * 0.15);
+    ctx.fillRect(x + (w * 0.25), y + (h * 0.75), w * 0.5, h * 0.15);
     ctx.fillRect(x + (w * 0.375), y + (h * 0.9), w * 0.25, h * 0.1);
 }
 
@@ -238,6 +238,6 @@ function draw() {
     }
 }
 update();
-</script>
+ </script>
 </body>
 </html>
