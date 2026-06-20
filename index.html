@@ -4,18 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=no">
     <title>Cute Bunny Co-Op Online</title>
-    <!-- Crucial connection step: loads the server connector socket library -->
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { margin: 0; background-color: #f7d6e0; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; overflow: hidden; touch-action: none; position: relative; }
-        #game-container { text-align: center; width: 100%; max-width: 360px; padding: 10px; box-sizing: border-box; }
-        #ui-display { display: flex; justify-content: space-between; color: #fb6f92; font-size: 1.2rem; font-weight: bold; margin-bottom: 10px; padding: 0 5px; }
-        canvas { background-color: #eff7f6; border: 5px solid #b5e2fa; border-radius: 12px; image-rendering: pixelated; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; height: auto; }
-        #controls-container { display: flex; justify-content: center; margin-top: 15px; }
-        .dpad { display: flex; flex-direction: column; align-items: center; width: 60%; }
-        .horizontal-btns { display: flex; justify-content: space-between; width: 120px; margin: 4px 0; }
-        .ctrl-btn { width: 50px; height: 50px; border: none; border-radius: 12px; font-size: 1.3rem; font-weight: bold; color: white; box-shadow: 0 4px 0 rgba(0,0,0,0.15); user-select: none; outline: none; background-color: #ff8fab; }
+        body { margin: 0; background-color: #f7d6e0; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; height: 100vh; font-family: sans-serif; overflow: hidden; touch-action: none; position: relative; }
+        #game-container { text-align: center; width: 100%; max-width: 360px; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; }
+        #ui-display { display: flex; justify-content: space-between; color: #fb6f92; font-size: 1.1rem; font-weight: bold; margin-bottom: 5px; padding: 0 5px; width: 100%; max-width: 320px; }
+        canvas { background-color: #eff7f6; border: 5px solid #b5e2fa; border-radius: 12px; image-rendering: pixelated; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 320px; height: auto; }
+        
+        /* Fixed Corner Joysticks Layout */
+        #controls-container { position: absolute; bottom: 20px; left: 0; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box; pointer-events: none; }
+        .dpad { display: flex; flex-direction: column; align-items: center; width: 110px; pointer-events: auto; }
+        .horizontal-btns { display: flex; justify-content: space-between; width: 100%; margin: 4px 0; }
+        .ctrl-btn { width: 45px; height: 45px; border: none; border-radius: 50%; font-size: 1.2rem; font-weight: bold; color: white; box-shadow: 0 4px 0 rgba(0,0,0,0.15); user-select: none; outline: none; background-color: #ff8fab; transition: transform 0.05s; }
         .ctrl-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.15); }
+        
         #name-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #ffe5ec; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
         .input-box { background: white; padding: 20px; border-radius: 15px; border: 4px solid #ffc2d1; box-shadow: 0 6px 16px rgba(0,0,0,0.05); text-align: center; width: 80%; max-width: 280px; }
         .input-box h2 { color: #fb6f92; margin-top: 0; font-size: 1.3rem; }
@@ -35,6 +37,184 @@
 
 <div id="game-container">
     <div id="ui-display">
+        <span id="score-text">Score: 0 (HI: 0)</span>
+        <span id="lives-text">❤️ ❤️ ❤️</span>
+    </div>
+    <canvas id="gameCanvas" width="320" height="240"></canvas>
+</div>
+
+<div id="controls-container">
+    <!-- Blue Boy Controller (Bottom Left) -->
+    <div class="dpad" id="blue-dpad">
+        <button class="ctrl-btn" id="btn-blue-W">▲</button>
+        <div class="horizontal-btns">
+            <button class="ctrl-btn" id="btn-blue-A">◀</button>
+            <button class="ctrl-btn" id="btn-blue-D">▶</button>
+        </div>
+        <button class="ctrl-btn" id="btn-blue-S">▼</button>
+    </div>
+    <!-- Pink Girl Controller (Bottom Right) -->
+    <div class="dpad" id="pink-dpad">
+        <button class="ctrl-btn" id="btn-pink-Up">▲</button>
+        <div class="horizontal-btns">
+            <button class="ctrl-btn" id="btn-pink-Left">◀</button>
+            <button class="ctrl-btn" id="btn-pink-Right">▶</button>
+        </div>
+        <button class="ctrl-btn" id="btn-pink-Down">▼</button>
+    </div>
+</div>
+
+<script>
+let socket;
+try { socket = io(); } catch(e) { console.log("Offline mode"); }
+
+const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
+const scoreText = document.getElementById("score-text"), livesText = document.getElementById("lives-text");
+const nameOverlay = document.getElementById("name-overlay"), nameInput = document.getElementById("name-input"), startBtn = document.getElementById("start-btn");
+
+let gameRunning = false, score = 0, highScore = 0, lives = 3, gameOver = false, hearts = [], heartSpawnTimer = 0, petals = [];
+const activeInputs = { blueUp: false, blueDown: false, blueLeft: false, blueRight: false, pinkUp: false, pinkDown: false, pinkLeft: false, pinkRight: false };
+
+let myId = null, myRole = null;
+let blueBunny = { x: 50, y: 160, width: 30, height: 30, speed: 3, color: "#85e3ff", frame: 0, ticks: 0, name: "Bluey" };
+let pinkBunny = { x: 240, y: 160, width: 30, height: 30, speed: 3, color: "#ff8fab", frame: 0, ticks: 0, name: "Pinky" };
+
+// Sound Engine using Web Audio API
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playTone(freq, type, duration) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+
+// Generate Petals
+for (let i = 0; i < 10; i++) {
+    petals.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: 2 + Math.random() * 3, d: 0.5 + Math.random() });
+}
+
+if (socket) {
+    socket.on('init', (data) => {
+        myId = data.id; myRole = data.role;
+        document.getElementById('blue-dpad').style.opacity = myRole === 'blue' ? '1' : '0.3';
+        document.getElementById('pink-dpad').style.opacity = myRole === 'pink' ? '1' : '0.3';
+    });
+    socket.on('gameState', (state) => {
+        score = state.score; lives = state.lives; gameOver = state.gameOver;
+        if (state.highScore) highScore = state.highScore;
+        scoreText.innerText = `Score: ${score} (HI: ${highScore})`;
+        updateLivesUI();
+    });
+    socket.on('playerMoved', (p) => {
+        if (p.role === 'blue') { blueBunny.x = p.x; blueBunny.y = p.y; blueBunny.name = p.name; }
+        if (p.role === 'pink') { pinkBunny.x = p.x; pinkBunny.y = p.y; pinkBunny.name = p.name; }
+    });
+    socket.on('heartEffect', (type) => {
+        if (type === 'catch') playTone(523.25, 'sine', 0.1);
+        if (type === 'miss') playTone(196, 'sawtooth', 0.2);
+    });
+}
+
+function triggerStart() {
+    const val = nameInput.value.trim();
+    if (val && socket) socket.emit('joinLobby', { name: val });
+    nameOverlay.style.display = "none"; gameRunning = true;
+}
+startBtn.addEventListener("touchstart", (e) => { e.preventDefault(); triggerStart(); }, { passive: false });
+startBtn.addEventListener("click", () => triggerStart());
+
+function setupTouch(btnId, action) {
+    const btn = document.getElementById(btnId); if (!btn) return;
+    btn.addEventListener("touchstart", (e) => { e.preventDefault(); activeInputs[action] = true; }, { passive: false });
+    btn.addEventListener("touchend", (e) => { e.preventDefault(); activeInputs[action] = false; }, { passive: false });
+    btn.addEventListener("touchcancel", (e) => { e.preventDefault(); activeInputs[action] = false; }, { passive: false });
+}
+setupTouch("btn-blue-W", "blueUp"); setupTouch("btn-blue-S", "blueDown"); setupTouch("btn-blue-A", "blueLeft"); setupTouch("btn-blue-D", "blueRight");
+setupTouch("btn-pink-Up", "pinkUp"); setupTouch("btn-pink-Down", "pinkDown"); setupTouch("btn-pink-Left", "pinkLeft"); setupTouch("btn-pink-Right", "pinkRight");
+
+function updateLivesUI() {
+    let s = ""; for(let i=0; i<lives; i++) s += "❤️ ";
+    livesText.innerText = lives === 0 ? "💔 Game Over" : s;
+}
+
+function update() {
+    if (gameRunning && !gameOver) {
+        let moved = false;
+        if (myRole === 'blue') {
+            if (activeInputs.blueLeft) { blueBunny.x -= blueBunny.speed; moved = true; }
+            if (activeInputs.blueRight) { blueBunny.x += blueBunny.speed; moved = true; }
+            if (activeInputs.blueUp) { blueBunny.y -= blueBunny.speed; moved = true; }
+            if (activeInputs.blueDown) { blueBunny.y += blueBunny.speed; moved = true; }
+            blueBunny.x = Math.max(0, Math.min(canvas.width - blueBunny.width, blueBunny.x));
+            blueBunny.y = Math.max(25, Math.min(canvas.height - blueBunny.height, blueBunny.y));
+        }
+        if (myRole === 'pink') {
+            if (activeInputs.pinkLeft) { pinkBunny.x -= pinkBunny.speed; moved = true; }
+            if (activeInputs.pinkRight) { pinkBunny.x += pinkBunny.speed; moved = true; }
+            if (activeInputs.pinkUp) { pinkBunny.y -= pinkBunny.speed; moved = true; }
+            if (activeInputs.pinkDown) { pinkBunny.y += pinkBunny.speed; moved = true; }
+            pinkBunny.x = Math.max(0, Math.min(canvas.width - pinkBunny.width, pinkBunny.x));
+            pinkBunny.y = Math.max(25, Math.min(canvas.height - pinkBunny.height, pinkBunny.y));
+        }
+        if (moved && socket) {
+            socket.emit('playerMove', { x: myRole === 'blue' ? blueBunny.x : pinkBunny.x, y: myRole === 'blue' ? blueBunny.y : pinkBunny.y });
+        }
+
+        blueBunny.ticks++; if (blueBunny.ticks > 8) { blueBunny.frame = (blueBunny.frame + 1) % 4; blueBunny.ticks = 0; }
+        pinkBunny.ticks++; if (pinkBunny.ticks > 8) { pinkBunny.frame = (pinkBunny.frame + 1) % 4; pinkBunny.ticks = 0; }
+
+        for (let p of petals) { 
+            p.y += p.d; 
+            p.x += Math.sin(p.y/10)*0.2; 
+            if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } 
+        }
+    }
+    draw(); 
+    requestAnimationFrame(update);
+}
+
+function drawHeart(x, y, w, h) {
+    ctx.fillStyle = "#ff4d6d";
+    ctx.fillRect(x + w*0.25, y, w*0.25, h*0.25); 
+    ctx.fillRect(x + w*0.5, y, w*0.25, h*0.25); 
+    ctx.fillRect(x, y + h*0.25, w, h*0.35);
+    ctx.fillRect(x + w*0.125, y + h*0.6, w*0.75, h*0.15); 
+    ctx.fillRect(x + w*0.25, y + h*0.75, w*0.5, h*0.15); 
+    ctx.fillRect(x + w*0.375, y + h*0.9, w*0.25, h*0.1);
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(255, 182, 193, 0.3)";
+    for (let p of petals) { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
+
+    // FIXED: Draw the live hearts synced by the server
+    if (gameRunning) {
+        for (let h of hearts) {
+            drawHeart(h.x, h.y, h.width, h.height);
+        }
+    }
+
+    ctx.fillStyle = blueBunny.color; ctx.fillRect(blueBunny.x, blueBunny.y, blueBunny.width, blueBunny.height);
+    ctx.fillRect(blueBunny.x + 4, blueBunny.y - 8 + (blueBunny.frame % 2 * 2), 5, 8); ctx.fillRect(blueBunny.x + 21, blueBunny.y - 8 + (blueBunny.frame % 2 * 2), 5, 8);
+    ctx.fillStyle = "#4dabf7"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center"; ctx.fillText(blueBunny.name, blueBunny.x + 15, blueBunny.y - 14);
+
+    ctx.fillStyle = pinkBunny.color; ctx.fillRect(pinkBunny.x, pinkBunny.y, pinkBunny.width, pinkBunny.height);
+    ctx.fillRect(pinkBunny.x + 4, pinkBunny.y - 8 + (pinkBunny.frame % 2 * 2), 5, 8); ctx.fillRect(pinkBunny.x + 21, pinkBunny.y - 8 + (pinkBunny.frame % 2 * 2), 5, 8);
+    ctx.fillStyle = "#ff6b8b"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center"; ctx.fillText(pinkBunny.name, pinkBunny.x + 15, pinkBunny.y - 14);
+
+    if (gameOver) {
+        ctx.fillStyle = "rgba(255, 240, 243, 0.85)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fb6f92"; ctx.font = "bold 18px sans-serif"; ctx.textAlign = "center"; ctx.fillText("Oh No! Heart Broken 💔", canvas.width / 2, canvas.height / 2 - 10);
+    }
+}
+update();
+</script>
+</body>
+</html>    <div id="ui-display">
         <span id="score-text">Score: 0</span>
         <span id="lives-text">❤️ ❤️ ❤️</span>
     </div>
