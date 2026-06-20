@@ -1,7 +1,14 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+
+// Fixed connection security clearance (CORS) for server syncing
+const io = require('socket.io')(http, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 
 app.use(express.static(__dirname));
 
@@ -18,7 +25,6 @@ function checkCollision(r1, r2) {
 }
 
 function serverLoop() {
-    // 🌟 FIXED: Only spawn hearts and process physics if BOTH players are in the lobby!
     const playerCount = Object.keys(players).length;
     
     if (playerCount === 2 && !gameOver) {
@@ -62,7 +68,6 @@ function serverLoop() {
         }
     }
     
-    // Always send the current player count so the client knows whether to show the waiting screen
     io.emit('gameState', { score, highScore, lives, gameOver, hearts, playerCount });
 }
 setInterval(serverLoop, 1000 / 60);
@@ -101,4 +106,3 @@ io.on('connection', (socket) => {
 });
 
 http.listen(3000, () => { console.log('Multiplayer server active'); });
-            
