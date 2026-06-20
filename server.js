@@ -3,65 +3,97 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 
-// Serve your HTML, CSS, and JS game assets
 app.use(express.static(__dirname));
 
 let players = {};
-let activeHearts = [];
-let sharedScore = 0;
-let sharedLives = 3;
+let hearts = [];
+let score = 0;
+let highScore = 0;
+let lives = 3;
+let gameOver = false;
+let heartSpawnTimer = 0;
+
+function checkCollision(r1, r2) {
+    return r1.x < r2.x + r2.width && r1.x + r1.width > r2.x && r1.y < r2.y + r2.height && r1.y + r1.height > r2.y;
+}
+
+function serverLoop() {
+    if (Object.keys(players).length > 0 && !gameOver) {
+        heartSpawnTimer++;
+        let spawnRate = Math.max(20, 50 - Math.floor(score / 5) * 5);
+        if (heartSpawnTimer > spawnRate) {
+            hearts.push({
+                x: Math.random() * 300,
+                y: -20,
+                width: 16,
+                height: 16,
+                speed: 1.5 + Math.random() * 1.5 + (score * 0.05)
+            });
+            heartSpawnTimer = 0;
+        }
+
+        for (let i = hearts.length - 1; i >= 0; i--) {
+            hearts[i].y += hearts[i].speed;
+            let caught = false;
+
+            for (let id in players) {
+                let p = players[id];
+                let bunnyRect = { x: p.x, y: p.y, width: 30, height: 30 };
+                if (checkCollision(bunnyRect, hearts[i])) {
+                    hearts.splice(i, 1);
+                    score++;
+                    if (score > highScore) highScore = score;
+                    io.emit('heartEffect', 'catch');
+                    caught = true;
+                    break;
+                }
+            }
+            if (caught) continue;
+
+            if (hearts[i].y > 240) {
+                hearts.splice(i, 1);
+                lives--;
+                io.emit('heartEffect', 'miss');
+                if (lives <= 0) gameOver = true;
+            }
+        }
+        io.emit('gameState', { score, highScore, lives, gameOver, hearts });
+    }
+}
+setInterval(serverLoop, 1000 / 60);
 
 io.on('connection', (socket) => {
-    console.log('Player connected: ' + socket.id);
-
-    // Assign roles dynamically (First connect = Bluey, Second = Pinky)
-    let assignedRole = null;
-    const currentCount = Object.keys(players).length;
-
-    if (currentCount === 0) assignedRole = 'blue';
-    else if (currentCount === 1) assignedRole = 'pink';
-
-    // Save player state on server
+    let assignedRole = Object.keys(players).length === 0 ? 'blue' : 'pink';
+    
     players[socket.id] = {
-        id: socket.id,
-        role: assignedRole,
-        name: assignedRole === 'blue' ? 'Bluey' : 'Pinky',
-        x: assignedRole === 'blue' ? 50 : 240,
-        y: 160
+        id: socket.id, role: assignedRole, name: assignedRole === 'blue' ? 'Bluey' : 'Pinky',
+        x: assignedRole === 'blue' ? 50 : 240, y: 160
     };
 
-    // Send connection details back to the player
     socket.emit('init', { id: socket.id, role: assignedRole, players });
-    
-    // Tell everyone else a new player joined
-    socket.broadcast.emit('newPlayer', players[socket.id]);
 
-    // Handle incoming position updates from players
-    socket.on('playerMove', (moveData) => {
+    socket.on('joinLobby', (data) => {
         if (players[socket.id]) {
-            players[socket.id].x = moveData.x;
-            players[socket.id].y = moveData.y;
-            socket.broadcast.emit('playerMoved', players[socket.id]);
+            players[socket.id].name = data.name;
+            io.emit('playerMoved', players[socket.id]);
         }
     });
 
-    // Sync custom user name updates across screens
-    socket.on('updateName', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].name = data.name;
-            io.emit('nameUpdated', { id: socket.id, name: data.name });
+    socket.on('playerMove', (moveData) => {
+        if (players[socket.id] && !gameOver) {
+            players[socket.id].x = moveData.x;
+            players[socket.id].y = moveData.y;
+            io.emit('playerMoved', players[socket.id]);
         }
     });
 
     socket.on('disconnect', () => {
-        console.log('Player disconnected: ' + socket.id);
         delete players[socket.id];
-        io.emit('playerDisconnected', socket.id);
+        if (Object.keys(players).length === 0) {
+            score = 0; lives = 3; gameOver = false; hearts = [];
+        }
     });
 });
 
-// Run server on port 3000
-http.listen(3000, () => {
-    console.log('Server is spinning up on http://localhost:3000');
-});
-          
+http.listen(3000, () => { console.log('Multiplayer server active'); });
+        
