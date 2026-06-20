@@ -11,7 +11,6 @@
         #ui-display { display: flex; justify-content: space-between; color: #fb6f92; font-size: 1.1rem; font-weight: bold; margin-bottom: 5px; padding: 0 5px; width: 100%; max-width: 320px; }
         canvas { background-color: #eff7f6; border: 5px solid #b5e2fa; border-radius: 12px; image-rendering: pixelated; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 320px; height: auto; }
         
-        /* Fixed Corner Joysticks Layout */
         #controls-container { position: absolute; bottom: 20px; left: 0; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box; pointer-events: none; }
         .dpad { display: flex; flex-direction: column; align-items: center; width: 110px; pointer-events: auto; }
         .horizontal-btns { display: flex; justify-content: space-between; width: 100%; margin: 4px 0; }
@@ -44,7 +43,6 @@
 </div>
 
 <div id="controls-container">
-    <!-- Blue Boy Controller (Bottom Left) -->
     <div class="dpad" id="blue-dpad">
         <button class="ctrl-btn" id="btn-blue-W">▲</button>
         <div class="horizontal-btns">
@@ -53,7 +51,6 @@
         </div>
         <button class="ctrl-btn" id="btn-blue-S">▼</button>
     </div>
-    <!-- Pink Girl Controller (Bottom Right) -->
     <div class="dpad" id="pink-dpad">
         <button class="ctrl-btn" id="btn-pink-Up">▲</button>
         <div class="horizontal-btns">
@@ -72,14 +69,13 @@ const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2
 const scoreText = document.getElementById("score-text"), livesText = document.getElementById("lives-text");
 const nameOverlay = document.getElementById("name-overlay"), nameInput = document.getElementById("name-input"), startBtn = document.getElementById("start-btn");
 
-let gameRunning = false, score = 0, highScore = 0, lives = 3, gameOver = false, hearts = [], heartSpawnTimer = 0, petals = [];
+let gameRunning = false, score = 0, highScore = 0, lives = 3, gameOver = false, hearts = [], heartSpawnTimer = 0, petals = [], serverPlayersCount = 0;
 const activeInputs = { blueUp: false, blueDown: false, blueLeft: false, blueRight: false, pinkUp: false, pinkDown: false, pinkLeft: false, pinkRight: false };
 
 let myId = null, myRole = null;
 let blueBunny = { x: 50, y: 160, width: 30, height: 30, speed: 3, color: "#85e3ff", frame: 0, ticks: 0, name: "Bluey" };
 let pinkBunny = { x: 240, y: 160, width: 30, height: 30, speed: 3, color: "#ff8fab", frame: 0, ticks: 0, name: "Pinky" };
 
-// Sound Engine using Web Audio API
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playTone(freq, type, duration) {
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -91,7 +87,6 @@ function playTone(freq, type, duration) {
     osc.start(); osc.stop(audioCtx.currentTime + duration);
 }
 
-// Generate Petals
 for (let i = 0; i < 10; i++) {
     petals.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: 2 + Math.random() * 3, d: 0.5 + Math.random() });
 }
@@ -104,6 +99,8 @@ if (socket) {
     });
     socket.on('gameState', (state) => {
         score = state.score; lives = state.lives; gameOver = state.gameOver;
+        hearts = state.hearts;
+        serverPlayersCount = state.playerCount; // 🌟 TRACK THE LOBBY SIZE
         if (state.highScore) highScore = state.highScore;
         scoreText.innerText = `Score: ${score} (HI: ${highScore})`;
         updateLivesUI();
@@ -141,7 +138,8 @@ function updateLivesUI() {
 }
 
 function update() {
-    if (gameRunning && !gameOver) {
+    // 🌟 FIXED: Only allow movements if BOTH players have loaded in
+    if (gameRunning && !gameOver && serverPlayersCount === 2) {
         let moved = false;
         if (myRole === 'blue') {
             if (activeInputs.blueLeft) { blueBunny.x -= blueBunny.speed; moved = true; }
@@ -165,11 +163,14 @@ function update() {
 
         blueBunny.ticks++; if (blueBunny.ticks > 8) { blueBunny.frame = (blueBunny.frame + 1) % 4; blueBunny.ticks = 0; }
         pinkBunny.ticks++; if (pinkBunny.ticks > 8) { pinkBunny.frame = (pinkBunny.frame + 1) % 4; pinkBunny.ticks = 0; }
-
-        for (let p of petals) { 
-            p.y += p.d; 
-            p.x += Math.sin(p.y/10)*0.2; 
-            if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } 
+    }
+        // Background petals drift whether players are waiting or active
+        if (gameRunning) {
+            for (let p of petals) { 
+                p.y += p.d; 
+                p.x += Math.sin(p.y/10)*0.2; 
+                if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } 
+            }
         }
     }
     draw(); 
@@ -191,20 +192,32 @@ function draw() {
     ctx.fillStyle = "rgba(255, 182, 193, 0.3)";
     for (let p of petals) { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
 
-    // FIXED: Draw the live hearts synced by the server
     if (gameRunning) {
-        for (let h of hearts) {
-            drawHeart(h.x, h.y, h.width, h.height);
-        }
+        for (let h of hearts) drawHeart(h.x, h.y, h.width, h.height);
     }
 
+    // Draw Blue Boy Bunny
     ctx.fillStyle = blueBunny.color; ctx.fillRect(blueBunny.x, blueBunny.y, blueBunny.width, blueBunny.height);
     ctx.fillRect(blueBunny.x + 4, blueBunny.y - 8 + (blueBunny.frame % 2 * 2), 5, 8); ctx.fillRect(blueBunny.x + 21, blueBunny.y - 8 + (blueBunny.frame % 2 * 2), 5, 8);
     ctx.fillStyle = "#4dabf7"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center"; ctx.fillText(blueBunny.name, blueBunny.x + 15, blueBunny.y - 14);
 
+    // Draw Pink Girl Bunny
     ctx.fillStyle = pinkBunny.color; ctx.fillRect(pinkBunny.x, pinkBunny.y, pinkBunny.width, pinkBunny.height);
     ctx.fillRect(pinkBunny.x + 4, pinkBunny.y - 8 + (pinkBunny.frame % 2 * 2), 5, 8); ctx.fillRect(pinkBunny.x + 21, pinkBunny.y - 8 + (pinkBunny.frame % 2 * 2), 5, 8);
     ctx.fillStyle = "#ff6b8b"; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center"; ctx.fillText(pinkBunny.name, pinkBunny.x + 15, pinkBunny.y - 14);
+
+    // 🌟 Draw the waiting prompt overlay if a player is waiting alone
+    if (gameRunning && serverPlayersCount < 2 && !gameOver) {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+        ctx.fillRect(15, canvas.height / 2 - 35, canvas.width - 30, 60);
+        ctx.strokeStyle = "#ffb3c6"; ctx.lineWidth = 3;
+        ctx.strokeRect(15, canvas.height / 2 - 35, canvas.width - 30, 60);
+
+        ctx.fillStyle = "#fb6f92"; ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("Waiting for your favorite person...", canvas.width / 2, canvas.height / 2 - 10);
+        ctx.fillStyle = "#74c0fc"; ctx.font = "11px sans-serif";
+        ctx.fillText("Lobby: (1 / 2) Players Connected", canvas.width / 2, canvas.height / 2 + 12);
+    }
 
     if (gameOver) {
         ctx.fillStyle = "rgba(255, 240, 243, 0.85)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -215,3 +228,5 @@ update();
 </script>
 </body>
 </html>
+
+    
