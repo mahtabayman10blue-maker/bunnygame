@@ -18,7 +18,10 @@ function checkCollision(r1, r2) {
 }
 
 function serverLoop() {
-    if (Object.keys(players).length > 0 && !gameOver) {
+    // 🌟 FIXED: Only spawn hearts and process physics if BOTH players are in the lobby!
+    const playerCount = Object.keys(players).length;
+    
+    if (playerCount === 2 && !gameOver) {
         heartSpawnTimer++;
         let spawnRate = Math.max(20, 50 - Math.floor(score / 5) * 5);
         if (heartSpawnTimer > spawnRate) {
@@ -57,8 +60,10 @@ function serverLoop() {
                 if (lives <= 0) gameOver = true;
             }
         }
-        io.emit('gameState', { score, highScore, lives, gameOver, hearts });
     }
+    
+    // Always send the current player count so the client knows whether to show the waiting screen
+    io.emit('gameState', { score, highScore, lives, gameOver, hearts, playerCount });
 }
 setInterval(serverLoop, 1000 / 60);
 
@@ -80,7 +85,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('playerMove', (moveData) => {
-        if (players[socket.id] && !gameOver) {
+        if (players[socket.id] && !gameOver && Object.keys(players).length === 2) {
             players[socket.id].x = moveData.x;
             players[socket.id].y = moveData.y;
             io.emit('playerMoved', players[socket.id]);
@@ -96,4 +101,4 @@ io.on('connection', (socket) => {
 });
 
 http.listen(3000, () => { console.log('Multiplayer server active'); });
-        
+            
