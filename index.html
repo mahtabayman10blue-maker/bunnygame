@@ -12,11 +12,16 @@
         canvas { background-color: #eff7f6; border: 5px solid #b5e2fa; border-radius: 12px; image-rendering: pixelated; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 320px; height: auto; }
         
         #controls-container { position: absolute; bottom: 20px; left: 0; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box; pointer-events: none; }
-        .dpad { display: flex; flex-direction: column; align-items: center; width: 110px; pointer-events: auto; }
+        .dpad { display: none; flex-direction: column; align-items: center; width: 110px; pointer-events: auto; } /* Defaulted to display none until role is assigned */
         .horizontal-btns { display: flex; justify-content: space-between; width: 100%; margin: 4px 0; }
-        .ctrl-btn { width: 45px; height: 45px; border: none; border-radius: 50%; font-size: 1.2rem; font-weight: bold; color: white; box-shadow: 0 4px 0 rgba(0,0,0,0.15); user-select: none; outline: none; background-color: #ff8fab; transition: transform 0.05s; }
+        .ctrl-btn { width: 45px; height: 45px; border: none; border-radius: 50%; font-size: 1.2rem; font-weight: bold; color: white; box-shadow: 0 4px 0 rgba(0,0,0,0.15); user-select: none; outline: none; transition: transform 0.05s; }
         .ctrl-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.15); }
         
+        #blue-dpad .ctrl-btn { background-color: #74c0fc; }
+        #blue-dpad .ctrl-btn:active { background-color: #4dabf7; }
+        #pink-dpad .ctrl-btn { background-color: #ff8fab; }
+        #pink-dpad .ctrl-btn:active { background-color: #ff6b8b; }
+
         #name-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #ffe5ec; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
         .input-box { background: white; padding: 20px; border-radius: 15px; border: 4px solid #ffc2d1; box-shadow: 0 6px 16px rgba(0,0,0,0.05); text-align: center; width: 80%; max-width: 280px; }
         .input-box h2 { color: #fb6f92; margin-top: 0; font-size: 1.3rem; }
@@ -43,6 +48,7 @@
 </div>
 
 <div id="controls-container">
+    <!-- Blue Boy Controller (Bottom Left) -->
     <div class="dpad" id="blue-dpad">
         <button class="ctrl-btn" id="btn-blue-W">▲</button>
         <div class="horizontal-btns">
@@ -51,6 +57,7 @@
         </div>
         <button class="ctrl-btn" id="btn-blue-S">▼</button>
     </div>
+    <!-- Pink Girl Controller (Bottom Right) -->
     <div class="dpad" id="pink-dpad">
         <button class="ctrl-btn" id="btn-pink-Up">▲</button>
         <div class="horizontal-btns">
@@ -62,11 +69,7 @@
 </div>
 
 <script>
-// 🌟 FIXED NETWORKING HANDSHAKE ROUTE
-const socket = io(window.location.origin, {
-    transports: ['websocket', 'polling'],
-    upgrade: true
-});
+const socket = io(window.location.origin, { transports: ['websocket', 'polling'], upgrade: true });
 
 const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
 const scoreText = document.getElementById("score-text"), livesText = document.getElementById("lives-text");
@@ -96,8 +99,15 @@ for (let i = 0; i < 10; i++) {
 
 socket.on('init', (data) => {
     myId = data.id; myRole = data.role;
-    document.getElementById('blue-dpad').style.opacity = myRole === 'blue' ? '1' : '0.3';
-    document.getElementById('pink-dpad').style.opacity = myRole === 'pink' ? '1' : '0.3';
+    
+    // 🌟 FIXED LOGIC: Turn on ONLY your specific joystick, keep the other hidden!
+    if (myRole === 'blue') {
+        document.getElementById('blue-dpad').style.display = 'flex';
+        document.getElementById('pink-dpad').style.display = 'none';
+    } else if (myRole === 'pink') {
+        document.getElementById('pink-dpad').style.display = 'flex';
+        document.getElementById('blue-dpad').style.display = 'none';
+    }
 });
 
 socket.on('gameState', (state) => {
@@ -159,8 +169,7 @@ function update() {
             if (activeInputs.pinkDown) { pinkBunny.y += pinkBunny.speed; moved = true; }
             pinkBunny.x = Math.max(0, Math.min(canvas.width - pinkBunny.width, pinkBunny.x));
             pinkBunny.y = Math.max(25, Math.min(canvas.height - pinkBunny.height, pinkBunny.y));
-        }
-        if (moved) {
+            if (moved) {
             socket.emit('playerMove', { x: myRole === 'blue' ? blueBunny.x : pinkBunny.x, y: myRole === 'blue' ? blueBunny.y : pinkBunny.y });
         }
 
@@ -169,21 +178,19 @@ function update() {
     }
     
     if (gameRunning) {
-            // Background petals drift whether players are waiting or active
-        if (gameRunning) {
-            for (let p of petals) { p.y += p.d; p.x += Math.sin(p.y/10)*0.2; if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } }
-        }
+        for (let p of petals) { p.y += p.d; p.x += Math.sin(p.y/10)*0.2; if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } }
     }
+    
     draw(); requestAnimationFrame(update);
 }
 
 function drawHeart(x, y, w, h) {
     ctx.fillStyle = "#ff4d6d";
-    ctx.fillRect(x + (w * 0.25), y, w * 0.25, h * 0.25);
-    ctx.fillRect(x + (w * 0.5), y, w * 0.25, h * 0.25);
+    ctx.fillRect(x + (w * 0.25), y, w * 0.25, h * 0.25); 
+    ctx.fillRect(x + (w * 0.5), y, w * 0.25, h * 0.25); 
     ctx.fillRect(x, y + (h * 0.25), w, h * 0.35);
-    ctx.fillRect(x + (w * 0.125), y + (h * 0.6), w * 0.75, h * 0.15);
-    ctx.fillRect(x + (w * 0.25), y + (h * 0.75), w * 0.5, h * 0.15);
+    ctx.fillRect(x + (w * 0.125), y + (h * 0.6), w * 0.75, h * 0.15); 
+    ctx.fillRect(x + (w * 0.25), y + (h * 0.75), w * 0.5, h * 0.15); 
     ctx.fillRect(x + (w * 0.375), y + (h * 0.9), w * 0.25, h * 0.1);
 }
 
