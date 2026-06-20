@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=no">
     <title>Cute Bunny Co-Op Online</title>
-    <script src="/
-        socket.io/socket.io.js
-        "></script>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         body { margin: 0; background-color: #f7d6e0; display: flex; flex-direction: column; justify-content: flex-start; align-items: center; height: 100vh; font-family: sans-serif; overflow: hidden; touch-action: none; position: relative; }
         #game-container { text-align: center; width: 100%; max-width: 360px; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; }
@@ -64,8 +62,11 @@
 </div>
 
 <script>
-let socket;
-try { socket = io(); } catch(e) { console.log("Offline mode"); }
+// 🌟 FIXED NETWORKING HANDSHAKE ROUTE
+const socket = io(window.location.origin, {
+    transports: ['websocket', 'polling'],
+    upgrade: true
+});
 
 const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
 const scoreText = document.getElementById("score-text"), livesText = document.getElementById("lives-text");
@@ -93,33 +94,34 @@ for (let i = 0; i < 10; i++) {
     petals.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: 2 + Math.random() * 3, d: 0.5 + Math.random() });
 }
 
-if (socket) {
-    socket.on('init', (data) => {
-        myId = data.id; myRole = data.role;
-        document.getElementById('blue-dpad').style.opacity = myRole === 'blue' ? '1' : '0.3';
-        document.getElementById('pink-dpad').style.opacity = myRole === 'pink' ? '1' : '0.3';
-    });
-    socket.on('gameState', (state) => {
-        score = state.score; lives = state.lives; gameOver = state.gameOver;
-        hearts = state.hearts;
-        serverPlayersCount = state.playerCount;
-        if (state.highScore) highScore = state.highScore;
-        scoreText.innerText = `Score: ${score} (HI: ${highScore})`;
-        updateLivesUI();
-    });
-    socket.on('playerMoved', (p) => {
-        if (p.role === 'blue') { blueBunny.x = p.x; blueBunny.y = p.y; blueBunny.name = p.name; }
-        if (p.role === 'pink') { pinkBunny.x = p.x; pinkBunny.y = p.y; pinkBunny.name = p.name; }
-    });
-    socket.on('heartEffect', (type) => {
-        if (type === 'catch') playTone(523.25, 'sine', 0.1);
-        if (type === 'miss') playTone(196, 'sawtooth', 0.2);
-    });
-}
+socket.on('init', (data) => {
+    myId = data.id; myRole = data.role;
+    document.getElementById('blue-dpad').style.opacity = myRole === 'blue' ? '1' : '0.3';
+    document.getElementById('pink-dpad').style.opacity = myRole === 'pink' ? '1' : '0.3';
+});
+
+socket.on('gameState', (state) => {
+    score = state.score; lives = state.lives; gameOver = state.gameOver;
+    hearts = state.hearts;
+    serverPlayersCount = state.playerCount;
+    if (state.highScore) highScore = state.highScore;
+    scoreText.innerText = `Score: ${score} (HI: ${highScore})`;
+    updateLivesUI();
+});
+
+socket.on('playerMoved', (p) => {
+    if (p.role === 'blue') { blueBunny.x = p.x; blueBunny.y = p.y; blueBunny.name = p.name; }
+    if (p.role === 'pink') { pinkBunny.x = p.x; pinkBunny.y = p.y; pinkBunny.name = p.name; }
+});
+
+socket.on('heartEffect', (type) => {
+    if (type === 'catch') playTone(523.25, 'sine', 0.1);
+    if (type === 'miss') playTone(196, 'sawtooth', 0.2);
+});
 
 function triggerStart() {
     const val = nameInput.value.trim();
-    if (val && socket) socket.emit('joinLobby', { name: val });
+    if (val) socket.emit('joinLobby', { name: val });
     nameOverlay.style.display = "none"; gameRunning = true;
 }
 startBtn.addEventListener("touchstart", (e) => { e.preventDefault(); triggerStart(); }, { passive: false });
@@ -158,7 +160,7 @@ function update() {
             pinkBunny.x = Math.max(0, Math.min(canvas.width - pinkBunny.width, pinkBunny.x));
             pinkBunny.y = Math.max(25, Math.min(canvas.height - pinkBunny.height, pinkBunny.y));
         }
-        if (moved && socket) {
+        if (moved) {
             socket.emit('playerMove', { x: myRole === 'blue' ? blueBunny.x : pinkBunny.x, y: myRole === 'blue' ? blueBunny.y : pinkBunny.y });
         }
 
@@ -169,15 +171,10 @@ function update() {
     if (gameRunning) {
             // Background petals drift whether players are waiting or active
         if (gameRunning) {
-            for (let p of petals) { 
-                p.y += p.d; 
-                p.x += Math.sin(p.y/10)*0.2; 
-                if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } 
-            }
+            for (let p of petals) { p.y += p.d; p.x += Math.sin(p.y/10)*0.2; if (p.y > canvas.height) { p.y = -5; p.x = Math.random()*canvas.width; } }
         }
     }
-    draw(); 
-    requestAnimationFrame(update);
+    draw(); requestAnimationFrame(update);
 }
 
 function drawHeart(x, y, w, h) {
@@ -225,6 +222,6 @@ function draw() {
     }
 }
 update();
-    </script>
+ </script>
 </body>
 </html>
