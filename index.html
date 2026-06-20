@@ -12,7 +12,7 @@
         canvas { background-color: #eff7f6; border: 5px solid #b5e2fa; border-radius: 12px; image-rendering: pixelated; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 320px; height: auto; }
         
         #controls-container { position: absolute; bottom: 20px; left: 0; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box; pointer-events: none; }
-        .dpad { display: none; flex-direction: column; align-items: center; width: 110px; pointer-events: auto; } /* Defaulted to display none until role is assigned */
+        .dpad { display: none; flex-direction: column; align-items: center; width: 110px; pointer-events: auto; }
         .horizontal-btns { display: flex; justify-content: space-between; width: 100%; margin: 4px 0; }
         .ctrl-btn { width: 45px; height: 45px; border: none; border-radius: 50%; font-size: 1.2rem; font-weight: bold; color: white; box-shadow: 0 4px 0 rgba(0,0,0,0.15); user-select: none; outline: none; transition: transform 0.05s; }
         .ctrl-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.15); }
@@ -48,7 +48,6 @@
 </div>
 
 <div id="controls-container">
-    <!-- Blue Boy Controller (Bottom Left) -->
     <div class="dpad" id="blue-dpad">
         <button class="ctrl-btn" id="btn-blue-W">▲</button>
         <div class="horizontal-btns">
@@ -57,7 +56,6 @@
         </div>
         <button class="ctrl-btn" id="btn-blue-S">▼</button>
     </div>
-    <!-- Pink Girl Controller (Bottom Right) -->
     <div class="dpad" id="pink-dpad">
         <button class="ctrl-btn" id="btn-pink-Up">▲</button>
         <div class="horizontal-btns">
@@ -69,7 +67,7 @@
 </div>
 
 <script>
-const socket = io(window.location.origin, { transports: ['websocket', 'polling'], upgrade: true });
+let socket = null; // Default to null until button tap initiates handshake
 
 const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
 const scoreText = document.getElementById("score-text"), livesText = document.getElementById("lives-text");
@@ -97,43 +95,53 @@ for (let i = 0; i < 10; i++) {
     petals.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: 2 + Math.random() * 3, d: 0.5 + Math.random() });
 }
 
-socket.on('init', (data) => {
-    myId = data.id; myRole = data.role;
-    
-    // 🌟 FIXED LOGIC: Turn on ONLY your specific joystick, keep the other hidden!
-    if (myRole === 'blue') {
-        document.getElementById('blue-dpad').style.display = 'flex';
-        document.getElementById('pink-dpad').style.display = 'none';
-    } else if (myRole === 'pink') {
-        document.getElementById('pink-dpad').style.display = 'flex';
-        document.getElementById('blue-dpad').style.display = 'none';
+// Set up server listening network functions once triggered
+function startNetworkSync() {
+    try {
+        socket = io(window.location.origin, { transports: ['websocket', 'polling'], upgrade: true });
+        
+        socket.on('init', (data) => {
+            myId = data.id; myRole = data.role;
+            if (myRole === 'blue') {
+                document.getElementById('blue-dpad').style.display = 'flex';
+                document.getElementById('pink-dpad').style.display = 'none';
+            } else if (myRole === 'pink') {
+                document.getElementById('pink-dpad').style.display = 'flex';
+                document.getElementById('blue-dpad').style.display = 'none';
+            }
+            const val = nameInput.value.trim();
+            if (val) socket.emit('joinLobby', { name: val });
+        });
+
+        socket.on('gameState', (state) => {
+            score = state.score; lives = state.lives; gameOver = state.gameOver;
+            hearts = state.hearts;
+            serverPlayersCount = state.playerCount;
+            if (state.highScore) highScore = state.highScore;
+            scoreText.innerText = `Score: ${score} (HI: ${highScore})`;
+            updateLivesUI();
+        });
+
+        socket.on('playerMoved', (p) => {
+            if (p.role === 'blue') { blueBunny.x = p.x; blueBunny.y = p.y; blueBunny.name = p.name; }
+            if (p.role === 'pink') { pinkBunny.x = p.x; pinkBunny.y = p.y; pinkBunny.name = p.name; }
+        });
+
+        socket.on('heartEffect', (type) => {
+            if (type === 'catch') playTone(523.25, 'sine', 0.1);
+            if (type === 'miss') playTone(196, 'sawtooth', 0.2);
+        });
+    } catch(e) {
+        console.log("Offline or connection failed");
     }
-});
-
-socket.on('gameState', (state) => {
-    score = state.score; lives = state.lives; gameOver = state.gameOver;
-    hearts = state.hearts;
-    serverPlayersCount = state.playerCount;
-    if (state.highScore) highScore = state.highScore;
-    scoreText.innerText = `Score: ${score} (HI: ${highScore})`;
-    updateLivesUI();
-});
-
-socket.on('playerMoved', (p) => {
-    if (p.role === 'blue') { blueBunny.x = p.x; blueBunny.y = p.y; blueBunny.name = p.name; }
-    if (p.role === 'pink') { pinkBunny.x = p.x; pinkBunny.y = p.y; pinkBunny.name = p.name; }
-});
-
-socket.on('heartEffect', (type) => {
-    if (type === 'catch') playTone(523.25, 'sine', 0.1);
-    if (type === 'miss') playTone(196, 'sawtooth', 0.2);
-});
+}
 
 function triggerStart() {
-    const val = nameInput.value.trim();
-    if (val) socket.emit('joinLobby', { name: val });
-    nameOverlay.style.display = "none"; gameRunning = true;
+    nameOverlay.style.display = "none"; 
+    gameRunning = true;
+    startNetworkSync(); // 🌟 Wakes up network receptors ONLY after button press!
 }
+
 startBtn.addEventListener("touchstart", (e) => { e.preventDefault(); triggerStart(); }, { passive: false });
 startBtn.addEventListener("click", () => triggerStart());
 
@@ -153,7 +161,7 @@ function updateLivesUI() {
 
 function update() {
     if (gameRunning && !gameOver && serverPlayersCount === 2) {
-        let moved = false;
+                let moved = false;
         if (myRole === 'blue') {
             if (activeInputs.blueLeft) { blueBunny.x -= blueBunny.speed; moved = true; }
             if (activeInputs.blueRight) { blueBunny.x += blueBunny.speed; moved = true; }
@@ -169,7 +177,8 @@ function update() {
             if (activeInputs.pinkDown) { pinkBunny.y += pinkBunny.speed; moved = true; }
             pinkBunny.x = Math.max(0, Math.min(canvas.width - pinkBunny.width, pinkBunny.x));
             pinkBunny.y = Math.max(25, Math.min(canvas.height - pinkBunny.height, pinkBunny.y));
-            if (moved) {
+        }
+        if (moved) {
             socket.emit('playerMove', { x: myRole === 'blue' ? blueBunny.x : pinkBunny.x, y: myRole === 'blue' ? blueBunny.y : pinkBunny.y });
         }
 
@@ -229,6 +238,6 @@ function draw() {
     }
 }
 update();
- </script>
+</script>
 </body>
 </html>
